@@ -44,6 +44,15 @@ describe("buildCompat", () => {
     expect(buildCompat("gpt-5.5")).toEqual({ supportsStore: false });
   });
 
+  it("uses OpenRouter thinking params for routed OpenRouter model ids", () => {
+    expect(buildCompat("openrouter/deepseek/deepseek-v4-flash")).toMatchObject({
+      supportsStore: false,
+      supportsReasoningEffort: false,
+      thinkingFormat: "openrouter",
+      requiresReasoningContentOnAssistantMessages: true,
+    });
+  });
+
   it("adds Moonshot-compatible tool calling flags for Kimi models", () => {
     expect(buildCompat("kimi-k2.6")).toEqual({
       supportsStore: false,
@@ -220,6 +229,33 @@ describe("discoverModels fallback to /v1/models", () => {
       expect(anthropic.compat).toEqual({ supportsStore: false, cacheControlFormat: "anthropic" });
     });
   }
+
+  it("expands known provider wildcard routes from the Pi catalog", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = input instanceof URL ? input.toString() : String(input);
+      if (url.endsWith("/model/info")) return new Response(null, { status: 403 });
+      if (url.endsWith("/v1/models")) {
+        return jsonResponse(200, {
+          data: [{ id: "openrouter/*" }, { id: "openrouter/deepseek/deepseek-chat-v3-0324" }],
+        });
+      }
+      if (url === "https://models.dev/api.json") return new Response(null, { status: 503 });
+      throw new Error(`unexpected URL: ${url}`);
+    });
+
+    const result = await discoverModels("https://litellm.example.com", "sk-test", {});
+
+    expect(result.source).toBe("models_list");
+    expect(result.models.some((model) => model.id === "openrouter/*")).toBe(false);
+    expect(result.models.find((model) => model.id === "openrouter/deepseek/deepseek-v4-flash")).toMatchObject({
+      name: "DeepSeek: DeepSeek V4 Flash",
+      reasoning: true,
+      contextWindow: 1048576,
+      maxTokens: 65536,
+      compat: { supportsStore: false },
+    });
+    expect(result.models.find((model) => model.id === "openrouter/deepseek/deepseek-chat-v3-0324")).toBeDefined();
+  });
 
   it("uses Pi catalog metadata when models.dev is unavailable", async () => {
     const urls: string[] = [];

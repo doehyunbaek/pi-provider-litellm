@@ -61,6 +61,16 @@ export function shouldSuppressReasoningContent(modelId: string): boolean {
 }
 
 export function buildCompat(modelId: string): ProviderModelConfig["compat"] {
+  if (modelId.startsWith("openrouter/")) {
+    return {
+      supportsStore: false,
+      supportsDeveloperRole: /^openrouter\/(?:anthropic|openai)\//.test(modelId),
+      supportsReasoningEffort: false,
+      thinkingFormat: "openrouter",
+      requiresReasoningContentOnAssistantMessages: modelId.startsWith("openrouter/deepseek/"),
+      ...(ANTHROPIC_MODEL_PATTERN.test(modelId) ? { cacheControlFormat: "anthropic" as const } : {}),
+    };
+  }
   if (isMoonshotModel(modelId)) {
     return {
       supportsStore: false,
@@ -68,6 +78,14 @@ export function buildCompat(modelId: string): ProviderModelConfig["compat"] {
       supportsReasoningEffort: false,
       supportsStrictMode: false,
       maxTokensField: "max_tokens",
+    };
+  }
+  if (modelId.startsWith("deepseek/")) {
+    return {
+      supportsStore: false,
+      supportsDeveloperRole: false,
+      thinkingFormat: "deepseek",
+      requiresReasoningContentOnAssistantMessages: true,
     };
   }
   if (ANTHROPIC_MODEL_PATTERN.test(modelId)) {
@@ -322,6 +340,66 @@ function mapFromModelsList(
   };
 }
 
+function getWildcardProvider(entry: ModelsListEntry): KnownProvider | undefined {
+  const id = entry.id;
+  if (!id) return undefined;
+  if (id === "*") return toKnownProvider(entry.owned_by);
+  const match = /^([^/*]+)\/\*$/.exec(id);
+  return toKnownProvider(match?.[1]);
+}
+
+function mapWildcardCatalogModel(provider: KnownProvider, catalogModel: Model<Api>): ProviderModelConfig {
+  const id = catalogModel.id.startsWith(`${provider}/`) ? catalogModel.id : `${provider}/${catalogModel.id}`;
+  return {
+    id,
+    name: catalogModel.name ?? id,
+    reasoning: catalogModel.reasoning,
+    thinkingLevelMap: catalogModel.thinkingLevelMap,
+    input: catalogModel.input,
+    cost: catalogModel.cost,
+    contextWindow: catalogModel.contextWindow,
+    maxTokens: catalogModel.maxTokens,
+    compat: buildCompat(id),
+  };
+}
+
+function mapFromModelsListEntries(
+  entries: ModelsListEntry[],
+  modelsDev: ModelsDevResponse | undefined,
+): ProviderModelConfig[] {
+  const models = new Map<string, ProviderModelConfig>();
+  const wildcardProviders: KnownProvider[] = [];
+
+  for (const entry of entries) {
+    const wildcardProvider = getWildcardProvider(entry);
+    if (wildcardProvider) {
+      if (!wildcardProviders.includes(wildcardProvider)) wildcardProviders.push(wildcardProvider);
+      continue;
+    }
+
+    const model = mapFromModelsList(entry, modelsDev);
+    if (model) models.set(model.id, model);
+  }
+
+  for (const provider of wildcardProviders) {
+    let expanded = false;
+    for (const catalogModel of getModels(provider)) {
+      const model = mapWildcardCatalogModel(provider, catalogModel);
+      expanded = true;
+      if (!models.has(model.id)) models.set(model.id, model);
+    }
+
+    // Preserve the literal wildcard entry instead of silently dropping it if pi's
+    // local catalog does not know how to expand a future provider wildcard.
+    if (!expanded) {
+      const wildcardModel = mapFromModelsList({ id: `${provider}/*` }, modelsDev);
+      if (wildcardModel) models.set(wildcardModel.id, wildcardModel);
+    }
+  }
+
+  return [...models.values()];
+}
+
 async function discoverFromHealth(
   base: string,
   apiKey: string,
@@ -371,8 +449,6 @@ export async function discoverModels(
     throw new Error(`/v1/models returned ${listResult.status}`);
   }
   const modelsDev = await getModelsDevCatalog(options);
-  const models = (listResult.data.data ?? [])
-    .map((entry) => mapFromModelsList(entry, modelsDev))
-    .filter((m): m is ProviderModelConfig => m !== undefined);
+  const models = mapFromModelsListEntries(listResult.data.data ?? [], modelsDev);
   return { source: "models_list", models };
 }
