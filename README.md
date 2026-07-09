@@ -131,7 +131,7 @@ npm run check
 npm run clean && npm run build
 ```
 
-`npm run check` runs Biome, type checking, and the Vitest suite. Runtime changes must be built before local Pi smoke checks because the extension entrypoint is `./dist/index.js`.
+`npm run check` runs Biome, type checking, and the Vitest suite. Runtime changes must be built before local Pi smoke checks that invoke `./dist/index.js`; Pi package installs load the TypeScript source entrypoint directly for git-install compatibility.
 
 Before changing package contents or dependency policy, also run:
 

@@ -5,7 +5,7 @@
 - This package is a Pi extension that registers a `litellm` provider from `src/index.ts`.
 - Source is TypeScript ESM under `src/`; tests are Vitest specs under `tests/`.
 - Build output is `dist/`; do not edit generated output by hand.
-- The package entrypoint is `./dist/index.js`, and the Pi extension registration comes from `package.json` `pi.extensions`.
+- The npm package entrypoint is `./dist/index.js`; Pi package installs load `./src/index.ts` via `package.json` `pi.extensions` so git installs work without committed build output.
 - Node support starts at `>=22.19.0`; GitHub workflows currently run Node `24.16.0`.
 
 ## Commands
@@ -45,7 +45,7 @@
 - `.github/workflows/litellm-smoke.yml` uses VidaiMock plus a real LiteLLM proxy; it should not require real provider API keys.
 - Keep smoke readiness probes bounded with `curl --connect-timeout 1 --max-time 3`.
 - `scripts/smoke.ts` and `scripts/smoke-runner.ts` exercise discovery and `/v1/chat/completions` through the proxy.
-- The non-interactive Pi CLI smoke uses `./dist/index.js`, so runtime changes need a fresh build before running it.
+- The non-interactive Pi CLI smoke uses `./dist/index.js`, so runtime changes need a fresh build before running that smoke path.
 
 ## Release And Packaging
 

@@ -20,6 +20,14 @@ describe("package gallery metadata", () => {
 });
 
 describe("pi package compatibility", () => {
+  it("loads the TypeScript source entrypoint for git installs", async () => {
+    const { default: manifest } = await import("../package.json", {
+      with: { type: "json" },
+    });
+
+    expect(manifest.pi.extensions).toEqual(["./src/index.ts"]);
+  });
+
   it("accepts every pi package version through peer dependencies", async () => {
     const { default: manifest } = await import("../package.json", {
       with: { type: "json" },
