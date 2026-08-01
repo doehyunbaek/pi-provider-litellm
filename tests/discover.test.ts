@@ -287,7 +287,7 @@ describe("discoverModels fallback to /v1/models", () => {
     });
   });
 
-  it("uses models.dev metadata when LiteLLM returns provider ownership", async () => {
+  it("uses models.dev metadata and expands models missing from Pi's wildcard catalog", async () => {
     const urls: string[] = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = input instanceof URL ? input.toString() : String(input);
@@ -295,7 +295,10 @@ describe("discoverModels fallback to /v1/models", () => {
       if (url.endsWith("/model/info")) return new Response(null, { status: 403 });
       if (url.endsWith("/v1/models")) {
         return jsonResponse(200, {
-          data: [{ id: "gpt-5.5", object: "model", owned_by: "openai" }],
+          data: [
+            { id: "gpt-5.5", object: "model", owned_by: "openai" },
+            { id: "openrouter/*", object: "model", owned_by: "openai" },
+          ],
         });
       }
       if (url === "https://models.dev/api.json") {
@@ -312,6 +315,17 @@ describe("discoverModels fallback to /v1/models", () => {
               },
             },
           },
+          openrouter: {
+            models: {
+              "deepseek/deepseek-v4-flash-0731": {
+                name: "DeepSeek V4 Flash 0731",
+                reasoning: true,
+                modalities: { input: ["text"], output: ["text"] },
+                limit: { context: 1_048_576, output: 384_000 },
+                cost: { input: 0.14, output: 0.28, cache_read: 0.0028 },
+              },
+            },
+          },
         });
       }
       throw new Error(`unexpected URL: ${url}`);
@@ -321,8 +335,7 @@ describe("discoverModels fallback to /v1/models", () => {
 
     expect(urls).toContain("https://models.dev/api.json");
     expect(result.source).toBe("models_list");
-    expect(result.models).toHaveLength(1);
-    expect(result.models[0]).toMatchObject({
+    expect(result.models.find((model) => model.id === "gpt-5.5")).toMatchObject({
       id: "gpt-5.5",
       name: "GPT-5.5",
       reasoning: true,
@@ -332,7 +345,26 @@ describe("discoverModels fallback to /v1/models", () => {
       maxTokens: 128000,
       compat: { supportsStore: false },
     });
-    expect(result.models[0]?.cost).toEqual({ input: 5, output: 30, cacheRead: 0.5, cacheWrite: 0 });
+    expect(result.models.find((model) => model.id === "gpt-5.5")?.cost).toEqual({
+      input: 5,
+      output: 30,
+      cacheRead: 0.5,
+      cacheWrite: 0,
+    });
+    expect(result.models.find((model) => model.id === "openrouter/deepseek/deepseek-v4-flash-0731")).toMatchObject({
+      name: "DeepSeek V4 Flash 0731",
+      reasoning: true,
+      input: ["text"],
+      contextWindow: 1_048_576,
+      maxTokens: 384_000,
+      cost: { input: 0.14, output: 0.28, cacheRead: 0.0028, cacheWrite: 0 },
+      compat: {
+        supportsStore: false,
+        supportsReasoningEffort: false,
+        thinkingFormat: "openrouter",
+        requiresReasoningContentOnAssistantMessages: true,
+      },
+    });
   });
 
   it("throws when /model/info returns a non-401/403/404 error", async () => {

@@ -389,8 +389,19 @@ function mapFromModelsListEntries(
       if (!models.has(model.id)) models.set(model.id, model);
     }
 
-    // Preserve the literal wildcard entry instead of silently dropping it if pi's
-    // local catalog does not know how to expand a future provider wildcard.
+    // Pi's bundled catalog can lag dynamic routing providers such as OpenRouter.
+    // Merge models.dev entries so wildcard routes expose newly published models
+    // without waiting for a Pi release. Explicit LiteLLM entries and Pi catalog
+    // models retain precedence via the id check.
+    for (const modelId of Object.keys(modelsDev?.[provider]?.models ?? {})) {
+      const model = mapFromModelsList({ id: `${provider}/${modelId}` }, modelsDev);
+      if (!model) continue;
+      expanded = true;
+      if (!models.has(model.id)) models.set(model.id, model);
+    }
+
+    // Preserve the literal wildcard entry instead of silently dropping it if
+    // neither catalog knows how to expand a future provider wildcard.
     if (!expanded) {
       const wildcardModel = mapFromModelsList({ id: `${provider}/*` }, modelsDev);
       if (wildcardModel) models.set(wildcardModel.id, wildcardModel);
